@@ -1,0 +1,278 @@
+---
+title: "Perception of Future Economic Situation"
+date: Published `r format(Sys.time(), "%d %B %Y")`
+output:
+  html_document:
+    theme: spacelab
+    toc: true
+    toc_float: true  
+---    
+
+<br>
+
+### Libraries
+<br>
+
+```{r setup, eval=FALSE}
+library(Rmisc)
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(plotrix)
+```
+
+<br>
+
+## About data
+<br>
+In this research I will use data from CBOS. It comes from monthly studies called "Aktualne problemy i wydarzenia". It is 276 edition that was published in 2021-04-18 and comes form questionnaires that were hold in Warsaw. In total 1101 participants took part in this survey. 
+<br>
+<br>
+It describes attitudes of people from Warsaw to economical and political situation viewed from their individual, subjective perspective. 
+<br>
+<br>
+In total there were 162 questions asked. I decided to focus on one of them.
+<br>
+<br>
+More information about the studies can be found on the website:<br>
+https://rds.icm.edu.pl/dataset.xhtml?persistentId=doi:10.18150/0DD0HX&version=1.1
+<br>
+<br>
+I started from loading data table from CBOS website and choosing needed columns, that is one about year of birth (URODZONY), second about sex (PLEC) which I transformed from numeric representation (1,2) to nominal (K, M) where K stands for Kobiety (Female), and M stands for Mezczyzni (Male), and last about question of interest (q27).
+<br>
+<br>
+```{r}
+
+problemy_wydarzenia <- read.delim(url("https://rds.icm.edu.pl/api/access/datafile/542"), row.names=1)
+
+
+standard_zycia <- problemy_wydarzenia[,c("URODZONY", "PLEC", "q27")]
+
+colnames(standard_zycia) = c("urodzony", "plec", "sytuacja_za_rok")
+
+
+
+zmien_oznaczenie_plec <- function(plec) 
+{
+  plec2 <- rep(0, length(plec))
+  
+  for(i in 1:length(plec))
+  {
+    if (plec[i] == 1){
+      plec2[i] = 'M'
+    } else {
+      plec2[i] = 'K'
+    }
+  }
+  
+  return(plec2)
+}
+
+standard_zycia$plec <- zmien_oznaczenie_plec(standard_zycia$plec)
+
+```
+<br>
+
+## Research problem
+<br>
+Now it is finally good moment to explain what was the question I have chosen.
+<br>
+<br>
+In polish it was asked as follows:<br>
+**A jak Pan(i) sądzi, czy w ciągu najbliższego roku sytuacja w Polsce poprawi się, pogorszy czy też się nie zmieni?**
+<br>
+<br>
+What means:<br>
+**What do Mr./Mrs. think, will the situation in Poland improve, worsen or will not change over the next year?** 
+<br>
+<br>
+Possible answers were as follows:<br><br>
+
+* 1 - Zdecydowanie poprawi się$~~~~~$-$~~~$It will definitely improve<br>
+* 2 - Raczej poprawi się$~~~~~~~~~~~~~~~~$-$~~~$Rather, it will improve<br>
+* 3 - Nie zmieni się$~~~~~~~~~~~~~~~~~~~~~~$-$~~~$Will not change<br>
+* 4 - Raczej pogorszy się$~~~~~~~~~~~~~~$-$~~~$Rather, it will get worse<br>
+* 5 - Zdecydowanie pogorszy się$~~~$-$~~~$It will definitely get worse<br>
+* 7 - Nie udzielono odpowiedzi$~~~~~$-$~~~$No answer was given<br> 
+<br>
+
+Answers to this question are recorded as values from 1 to 5, where the greater the value, the more someone is a bad prophet. 
+<br>
+<br>
+I decided I will try to estimate mean values of this answers for female and male separately, as well as for people from different age categories.
+<br>
+<br>
+That is why I created extra column with age of respondents (wiek) and basing on this I divided people on six age categories (kategoria_wiekowa). I have chosen these age categories intervals in such a way so they are quite uniformly distributed, it means that to each of the categories falls similar number of people. What can be seen on histogram below. I did it because I wanted to receive confidence intervals of similar ranges for all of these categories, because as we know from the lectures sample size have impact on width of confidence intervals.
+<br>
+<br>
+```{r include = FALSE}
+
+library(Rmisc)
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(plotrix)
+
+
+podziel_na_kategorie <- function(wiek, kategorie) 
+{
+  podzial_na_kategorie <- rep(0, length(wiek))
+  
+  for(i in 1:length(wiek))
+  {
+    if (wiek[i] <= 30){
+      podzial_na_kategorie[i] = kategorie[1]
+    } else if (wiek[i] <= 40){
+      podzial_na_kategorie[i] = kategorie[2]
+    } else if (wiek[i] <= 50){
+      podzial_na_kategorie[i] = kategorie[3]
+    } else if (wiek[i] <= 60){
+      podzial_na_kategorie[i] = kategorie[4]
+    } else if (wiek[i] <= 70){
+      podzial_na_kategorie[i] = kategorie[5]
+    } else {
+      podzial_na_kategorie[i] = kategorie[6]
+    }
+  }
+  
+  return(podzial_na_kategorie)
+}
+
+standard_zycia$wiek = (rep(2013,1101) - standard_zycia$urodzony)
+
+kategorie = c("18-30", "31-40", "41-50", "51-60", "61-70", "70+")
+standard_zycia$kategoria_wiekowa = (podziel_na_kategorie(standard_zycia$wiek, kategorie))
+
+barplot(height = table(standard_zycia$kategoria_wiekowa), 
+        xlab = ("Age Categories"), ylab = ("Cardinality"), 
+        main = ("Checking distribution"))
+
+```
+<br>
+
+## Table with samples statistics
+<br>
+Next I calculated statistics for 12 groups. **12 = (2 -  number of sexes) * (6 - number of categories).** They include standard error, margin of error for default 95% confidence level called in table ci, standard deviation and sample mean.
+<br>
+<br>
+
+### Sample Statistics
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+
+s_z_za_rok_bez_NULL <- standard_zycia[standard_zycia$sytuacja_za_rok < 6, ]
+
+s_z_za_rok_stats <- summarySE(s_z_za_rok_bez_NULL, measurevar = "sytuacja_za_rok", groupvars=c("plec","kategoria_wiekowa"))
+
+s_z_za_rok_stats = rename(s_z_za_rok_stats, sample_mean = sytuacja_za_rok)
+kable(as.data.frame(s_z_za_rok_stats), col.names = c("Sex", "Age", "Size", "Mean", "sd", "se", "Margin of error"), digits = 4)
+
+
+
+```
+<br>
+
+## Calculating sufficient sample mean
+<br>
+Now lets see weather cardinality of our chosen groups is huge enough to calculate sample mean with specific parameters of margin of error and confidence level. **I decided that I would like to have margin of error not higher than 10% from population mean and confidence level of 95%.** Because I don't know whole population I assumed that populations parameters will steam from all I have. That is 1021 respondent who answered the question q27.
+<br>
+<br>
+
+```{r}
+sufficient_sample_size = function(conf_level, population_sd, margin_of_error) 
+{
+  return(((qnorm(conf_level + (1 - conf_level) / 2)  * population_sd ) / margin_of_err) ^ 2)
+}
+
+mean_za_rok <- mean(s_z_za_rok_bez_NULL$sytuacja_za_rok)
+margin_of_err <- 0.10 * mean_za_rok
+
+sd_za_rok <- sd(s_z_za_rok_bez_NULL$sytuacja_za_rok)
+
+
+suff_samp_size <- sufficient_sample_size(0.95, sd_za_rok, margin_of_err)
+suff_samp_size
+
+```
+<br>
+After calculations it turns out that **sufficient sample size** for 10% margin of error and 95% confidence interval **will be equal to 17,4**.
+But because our smallest sample cardinality is equal to 38 what is more than 2 times more we can surely reduce out margin of error. I will evaluate it below. 
+<br>
+<br>
+
+```{r}
+better_margin_of_err <- qnorm(0.975) * sd_za_rok / sqrt(38)
+
+relative_error <- better_margin_of_err / mean_za_rok * 100
+relative_error
+```
+<br>
+So now we know we **are even able to achieve at least 6.77% of margin of error** with 95% confidence level assumption for the smallest sample that consists of 38 elements, other samples will be even more numerous, it means that our margin of error for them will be even smaller. Ok, but what this result tells us. **It means that for samples of size 38, statistically 95% of them will estimate mean with a deviation of not more than 6.77% from population mean.**
+<br>
+<br>
+
+## Plot with saple means
+<br>
+Next I constructed plot that shows all of this 12 means with their confidence intervals. It can be seen below.
+<br>
+<br>
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+
+pd <- position_dodge(0.2) # move overlapping results 0.1 to the left and right
+
+ggplot(s_z_za_rok_stats, aes(x = kategoria_wiekowa, y = sample_mean, colour = plec)) + 
+    geom_errorbar(aes(ymin = sample_mean - ci, ymax = sample_mean + ci), width = 0.1, position = pd) +
+    geom_line(position = pd) +
+    geom_point(position = pd, size = 3, shape = 21, fill = "white") +
+    xlab("Kategoria wiekowa") +
+    ylab("Sytuacja za rok") +
+    scale_colour_hue(name = "Plec",
+                     breaks = c("K", "M"),
+                     labels = c("Kobieta", "Mezczyzna")) +
+    ggtitle("A jak Pan(i) sądzi, czy w ciągu najbliższego roku sytuacja w Polsce\npoprawi się, pogorszy czy też się nie zmieni?")
+
+
+
+```
+
+<br>
+
+## Conclusions
+<br>
+Generally it seems that men have more pessimistic view when it comes to forecasting the future of Poland. Another thing to notice is that young and old people tend to see reality in a more favorable light. For me  results of these studies are another argument that common perception of young people as idealists is not accidental. As I am not old yet, understanding why older people tend to perceive reality better will be an open question for now.
+<br>
+<br>
+<br>
+
+## Does sample confidence interval contain population mean? 
+<br>
+At the end I decided to draw 50 samples, show them on the graph and mark in green those of them which do not contain population mean. I remember I didn't understand it during lecture, and that is why I wanted to do that task once again. I checked "Report #2 - Estimation for the Mean and differences" file and realized that uiw parameter in 171 line wasn't divided by square root of sample size. And that is why on our plots all sample means with their confidence intervals contained population mean. Below I did similar analysis but on date of mine interest.
+<br>
+
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+
+
+n <- 40
+syt_za_rok = s_z_za_rok_bez_NULL$sytuacja_za_rok
+mean_za_rok = mean(syt_za_rok)
+samp_mean_za_rok = rep(0,50)
+samp_sd_za_rok = rep(0,50)
+
+for(i in 1:50){
+  samp_syt_za_rok <- sample(syt_za_rok, n)
+  samp_mean_za_rok[i] <- mean(samp_syt_za_rok)
+  samp_sd_za_rok[i] <- sd(samp_syt_za_rok)
+}
+
+marg_of_err = qnorm(0.975)*samp_sd_za_rok/sqrt(n)
+
+
+plotCI(1:50,samp_mean_za_rok,uiw = marg_of_err,pt.bg=par("bg"),pch=21, 
+       col = ifelse((mean_za_rok <= samp_mean_za_rok + marg_of_err) 
+                    & (mean_za_rok >= samp_mean_za_rok - marg_of_err), 'red', 'green'), 
+       xlab = "Sample means confidence interval", ylab = "Samples of size 40", 
+       main = "Is population mean inside sample mean confidence interval?")
+abline(h = mean_za_rok)
+  
+
+
+```
